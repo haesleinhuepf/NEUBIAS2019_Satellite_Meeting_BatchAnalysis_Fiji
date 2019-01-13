@@ -1,3 +1,21 @@
+// Vesice colocalisation batch processing macro
+// ============================================
+// 
+// Expected input data: 
+//  * Folder of lif files
+//  * Four channels each
+//    * 1: DAPI / nuclei channel
+//    * 3, 4: vesicles
+//
+// Computes the Jaccard index / overlap between channel 3 and 4
+// 
+// This is a academic code example prepared for the NEUBIAS Satellite
+// meeting BioImage Analyst Best Practices seminar 2019.   
+//
+// Author: Robert Haase, Myers lab, MPICBG, rhaase@mpi-cbg.de
+// January 2019
+// ----------------------------------------
+inputFolder = "C:/structure/data/Tischi_neubias-2019/neubias-2018/";
 resultCSVFilename = "C:/structure/data/Tischi_neubias-2019/result.tsv";
 
 // threshold algorithm candidates are "Otsu", "Moments", "Yen", "Intermodes", "MaxEntropy"
@@ -10,48 +28,56 @@ nucleiChannel = 0;
 
 binaryOpeningDistance = 3;
 
+// main: run batch processing of a folder
 function main() {
 	File.append("Image/Cell\tJaccard Index", resultCSVFilename);
 	
-	//filename = "C:/structure/data/Tischi_neubias-2019/neubias-2018/180222 sp5a.lif";
-	//analyseFile(filename);
-	filename = "C:/structure/data/Tischi_neubias-2019/neubias-2018/180305_imagingof_171212wt_exp.lif";
-	analyseFile(filename);
+	processFolder(inputFolder);
 }
 
+// go through a folder and open all lif images
+function processFolder(input) {
+	list = getFileList(input);
+	list = Array.sort(list);
 
-
-function analyseFile(filename) {
-	if (endsWith(filename, ".tif")) {
-		return; // ignore TIF files
+	for (i = 0; i < list.length; i++) {
+		if(endsWith(list[i], ".lif")) {
+			analyseFile(input + list[i]);
+			break;
+		}
 	}
+}
+
+// open one particular image
+function analyseFile(filename) {
 	
 	numberOfImagesInFile = 1000;
 	firstTitle = "";
 	for (i = 1 ; i < numberOfImagesInFile; i ++) {
 		run("Close All");
-		if ( endsWith(filename, ".tif") ) {
-			numberOfImagesInFile = 1; // stop for loop after processing this image
-			open(filename);
-		} else {
-			run("Bio-Formats", "open=[" + filename + "] autoscale color_mode=Default rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT series_" + i);
-			if (getTitle() == firstTitle) {
-				// no image open
-				break;
-			}
-			getDimensions(width, height, channels, slices, frames);
-			if (slices < 2 || channels != 4) {
-				continue;
-			}
-			if (firstTitle == "") {
-				firstTitle = getTitle();
-			}
+		run("Bio-Formats", "open=[" + filename + "] " + 
+		"autoscale color_mode=Default rois_import=[ROI manager] " +
+		"view=Hyperstack stack_order=XYCZT series_" + i);
+		
+		if (getTitle() == firstTitle) {
+			// no image open
+			break;
 		}
+		getDimensions(width, height, channels, slices, frames);
+		if (slices < 2 || channels != 4) {
+			continue;
+		}
+		if (firstTitle == "") {
+			firstTitle = getTitle();
+		}
+	
 		rename("input"); 
 		analyseImage(filename, filename + "_" + i);
 	}
 }
 
+// analyse one particulare image by segmenting cells, vesicles and measuring
+// overlap
 function analyseImage(inputFilename, outputFilename) {
 	pickSlice();
 	if (!File.exists(outputFilename + ".slice.tif")) {
@@ -59,6 +85,7 @@ function analyseImage(inputFilename, outputFilename) {
 	}
 	segmentAllChannels();
 	
+	// analysis of overlap in the whole image
 	jaccardIndexWholeImage = computeOverlapBetweenChannels(channelA, channelB);
 	
 	print(filename + " Jaccard Index: " + jaccardIndexWholeImage);
@@ -72,13 +99,10 @@ function analyseImage(inputFilename, outputFilename) {
 			break;
 		}
 
-		//// for debugging
-		//if (count > 2) {
-		//	break;	
-		//}
-
+		// analysis of overlap in individual cell
 		jaccardIndexIndividualCell = computeOverlapBetweenChannels(channelA, channelB);
 
+		// summarize over whole image
 		sumJaccardIndex	= sumJaccardIndex + jaccardIndexIndividualCell;
 		
 		print(outputFilename + " cell " + count + " Jaccard Index: " + jaccardIndexIndividualCell);
@@ -88,16 +112,15 @@ function analyseImage(inputFilename, outputFilename) {
 		close();
 	}
 
-	
+	// determine average of cells in one image and write to result log file
 	File.append(inputFilename + " cell average\t" + (sumJaccardIndex / count), resultCSVFilename);
 	File.append(inputFilename + " whole image\t" + jaccardIndexWholeImage, resultCSVFilename);
 	
 }
 
+// cell segmentation using nuclei segmentation + voronoi maps
+// vesicle segmentation using Otsu method
 function segmentCell(outputFilename, cellNumber) {
-	
-	
-	
 	run("Duplicate...", "duplicate ");
 	run("Duplicate...", "duplicate channels=" + (nucleiChannel + 1));
 	run("Fill Holes");
@@ -147,10 +170,6 @@ function segmentCell(outputFilename, cellNumber) {
 	run("Restore Selection");
 	run("Multiply...", "value=0 stack");
 	run("Select None");
-
-	// us this to check segentations:
-	//waitForUser("wait");
-
 	return true;
 }
 
@@ -195,24 +214,23 @@ function computeOverlapBetweenChannels(channel1, channel2) {
 
 	run("Set Measurements...", "area redirect=None decimal=3");
 
+	// determine union area
 	imageCalculator("AND create", channel1ImageTitle, channel2ImageTitle);
 	rename("Union");
 	setThreshold(127, 255);
 	run("Create Selection");
 	run("Measure");
 	areaUnion = getResult("Area", nResults() - 1);
-	//close();
-
+	
+	// determine intersection area
 	imageCalculator("OR create", channel1ImageTitle, channel2ImageTitle);
 	rename("Intersection");
 	setThreshold(127, 255);
 	run("Create Selection");
 	run("Measure");
 	areaIntersection = getResult("Area", nResults() - 1);
-	//close();
 
 	// close single channel images
-
 	selectWindow("channelA");
 	close();
 	selectWindow("channelB");
@@ -222,7 +240,6 @@ function computeOverlapBetweenChannels(channel1, channel2) {
 	selectWindow("Intersection");
 	close();
 	
-
 	selectWindow(inputImageTitle);
 	
 	// return Jaccard index
@@ -232,6 +249,4 @@ function computeOverlapBetweenChannels(channel1, channel2) {
 run("Close All");
 
 main();
-
-
 
