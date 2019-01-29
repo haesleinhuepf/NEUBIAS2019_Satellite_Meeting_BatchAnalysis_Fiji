@@ -215,7 +215,7 @@ function computeOverlapBetweenChannels(channel1, channel2) {
 	run("Set Measurements...", "area redirect=None decimal=3");
 
 	// determine union area
-	imageCalculator("AND create", channel1ImageTitle, channel2ImageTitle);
+	imageCalculator("OR create", channel1ImageTitle, channel2ImageTitle);
 	rename("Union");
 	setThreshold(127, 255);
 	run("Create Selection");
@@ -223,7 +223,7 @@ function computeOverlapBetweenChannels(channel1, channel2) {
 	areaUnion = getResult("Area", nResults() - 1);
 	
 	// determine intersection area
-	imageCalculator("OR create", channel1ImageTitle, channel2ImageTitle);
+	imageCalculator("AND create", channel1ImageTitle, channel2ImageTitle);
 	rename("Intersection");
 	setThreshold(127, 255);
 	run("Create Selection");
@@ -243,7 +243,7 @@ function computeOverlapBetweenChannels(channel1, channel2) {
 	selectWindow(inputImageTitle);
 	
 	// return Jaccard index
-	return areaUnion / areaIntersection;
+	return areaIntersection / areaUnion;
 }
 
 run("Close All");
